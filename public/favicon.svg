@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Background circle -->
+  <circle cx="50" cy="50" r="48" fill="#667eea" stroke="none"/>
+
+  <!-- Radius circles (multiple for effect) -->
+  <circle cx="50" cy="50" r="35" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+  <circle cx="50" cy="50" r="25" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.5"/>
+  <circle cx="50" cy="50" r="15" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="1.5"/>
+
+  <!-- Location pin -->
+  <g transform="translate(50, 40)">
+    <!-- Pin body -->
+    <path d="M 0,-15 C -8,-15 -12,-10 -12,-4 C -12,3 0,15 0,15 C 0,15 12,3 12,-4 C 12,-10 8,-15 0,-15 Z"
+          fill="white"
+          stroke="#764ba2"
+          stroke-width="1.5"/>
+    <!-- Pin dot -->
+    <circle cx="0" cy="-5" r="3" fill="#764ba2"/>
+  </g>
+</svg>
