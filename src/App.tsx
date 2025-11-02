@@ -288,11 +288,23 @@ function App() {
                 </div>
                 <div className="circle-controls">
                   <input
-                    type="number"
-                    min="1"
-                    step="1"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     value={circle.radius}
-                    onChange={(e) => updateCircle(circle.id, { radius: parseFloat(e.target.value) || 1 })}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      if (val === '' || /^\d+$/.test(val)) {
+                        const numVal = parseInt(val) || 0
+                        updateCircle(circle.id, { radius: numVal })
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const val = parseInt(e.target.value)
+                      if (!val || val < 1) {
+                        updateCircle(circle.id, { radius: 1 })
+                      }
+                    }}
                     className="circle-radius-input"
                   />
                   <select
