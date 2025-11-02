@@ -23,12 +23,40 @@ interface LocationState {
   lng: number
 }
 
-// Component to recenter map when location changes
-function RecenterMap({ center }: { center: LocationState }) {
+// Component to auto-fit map bounds to show the entire circle
+function AutoFitBounds({ center, radiusInMeters }: { center: LocationState; radiusInMeters: number }) {
   const map = useMap()
+
   useEffect(() => {
-    map.setView([center.lat, center.lng], 13)
-  }, [center, map])
+    // Small delay to ensure map is ready
+    const timeoutId = setTimeout(() => {
+      try {
+        if (!map || !center || radiusInMeters <= 0) return
+
+        // Create bounds manually instead of using a temporary circle
+        // This is more reliable and doesn't create unnecessary objects
+        const latDelta = (radiusInMeters / 111320) // 1 degree latitude ≈ 111,320 meters
+        const lngDelta = radiusInMeters / (111320 * Math.cos(center.lat * Math.PI / 180))
+
+        const bounds = L.latLngBounds(
+          [center.lat - latDelta, center.lng - lngDelta],
+          [center.lat + latDelta, center.lng + lngDelta]
+        )
+
+        // Fit the map to show the entire circle with padding
+        map.fitBounds(bounds, {
+          padding: [50, 50],
+          maxZoom: 18,
+          animate: true
+        })
+      } catch (error) {
+        console.error('Error fitting bounds:', error)
+      }
+    }, 100)
+
+    return () => clearTimeout(timeoutId)
+  }, [center, radiusInMeters, map])
+
   return null
 }
 
@@ -193,7 +221,7 @@ function App() {
 
           {location && (
             <>
-              <RecenterMap center={location} />
+              <AutoFitBounds center={location} radiusInMeters={radiusInMeters} />
               <Marker position={[location.lat, location.lng]}>
                 <Popup>Your Location</Popup>
               </Marker>
