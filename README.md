@@ -24,11 +24,6 @@ A simple and elegant web application built with React, TypeScript, and Vite that
 - **React-Leaflet** - React components for Leaflet
 - **OpenStreetMap** - Free map tiles
 
-## Prerequisites
-
-- Node.js 20.19+, 22.12+, or 24.x (latest LTS recommended)
-- npm or yarn
-
 ## Installation
 
 1. Navigate to the project directory:
@@ -60,11 +55,6 @@ npm run dev
    - Switch between miles (mi) and kilometers (km)
    - Click the red ✕ to remove a circle
 
-5. **View intersections**:
-   - When circles overlap, red dots mark intersection points
-   - Click the dots to see exact coordinates
-   - Map auto-zooms to show all circles and intersections
-
 ## Building for Production
 
 To create a production build:
@@ -85,86 +75,6 @@ npm run preview
 
 This project is configured for easy deployment to GitHub Pages.
 
-### Automatic Deployment (Recommended)
-
-The project includes a GitHub Actions workflow that automatically deploys to GitHub Pages on every push to the `main` branch.
-
-**Setup Steps:**
-
-1. **Create a GitHub repository** and push your code:
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit"
-   git branch -M main
-   git remote add origin https://github.com/YOUR_USERNAME/radius-map-tool.git
-   git push -u origin main
-   ```
-
-2. **Enable GitHub Pages** in your repository:
-   - Go to your repository on GitHub
-   - Navigate to **Settings** → **Pages**
-   - Under **Source**, select **GitHub Actions**
-
-3. **Configure the base URL** (if needed):
-   - If your repo name is NOT `radius-map-tool`, edit `vite.config.ts`:
-     ```typescript
-     base: '/YOUR_REPO_NAME/',
-     ```
-   - If using a custom domain or `username.github.io`, set:
-     ```typescript
-     base: '/',
-     ```
-
-4. **Push to deploy**:
-   ```bash
-   git add .
-   git commit -m "Configure deployment"
-   git push
-   ```
-
-Your site will be live at: `https://YOUR_USERNAME.github.io/radius-map-tool/`
-
-### Manual Deployment
-
-You can also deploy manually using the `gh-pages` package:
-
-```bash
-npm run deploy
-```
-
-This builds the project and pushes the `dist` folder to the `gh-pages` branch.
-
-## How It Works
-
-1. **Geolocation**: Uses the browser's native `navigator.geolocation` API to get your current coordinates
-2. **Address Geocoding**: Uses Nominatim API (OpenStreetMap) to convert addresses to coordinates
-3. **Map Rendering**: Leaflet renders an interactive map using free OpenStreetMap tiles
-4. **Multiple Circles**: Each location is stored with its own radius and unit settings
-5. **Circle Visualization**: Circles are drawn using Leaflet's Circle component with unique colors
-6. **Intersection Calculation**:
-   - Converts lat/lng to cartesian coordinates
-   - Uses geometric formulas to find intersection points between circle pairs
-   - Marks intersection points with red dots
-7. **Auto-Fit Bounds**:
-   - Calculates bounding box for all circles
-   - Includes intersection points in bounds
-   - Automatically adjusts zoom to fit everything
-8. **Unit Conversion**:
-   - Miles to meters: `miles × 1609.34`
-   - Kilometers to meters: `km × 1000`
-
-## Browser Compatibility
-
-This application requires a modern browser with:
-- Geolocation API support
-- ES6+ JavaScript support
-
-Tested on:
-- Chrome/Edge 90+
-- Firefox 88+
-- Safari 14+
-
 ## Privacy
 
 This application:
@@ -176,7 +86,3 @@ This application:
 ## License
 
 MIT
-
-## Contributing
-
-Feel free to open issues or submit pull requests for improvements!
