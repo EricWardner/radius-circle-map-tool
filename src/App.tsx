@@ -38,6 +38,7 @@ function App() {
   const [unit, setUnit] = useState<Unit>('miles')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>('')
+  const [address, setAddress] = useState<string>('')
 
   // Convert radius to meters for Leaflet Circle
   const radiusInMeters = unit === 'miles' ? radius * 1609.34 : radius * 1000
@@ -67,6 +68,51 @@ function App() {
     )
   }
 
+  const searchAddress = async () => {
+    if (!address.trim()) {
+      setError('Please enter an address')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+
+    try {
+      // Use Nominatim (OpenStreetMap's free geocoding service)
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`,
+        {
+          headers: {
+            'User-Agent': 'RadiusMapTool/1.0'
+          }
+        }
+      )
+
+      const data = await response.json()
+
+      if (data.length === 0) {
+        setError('Address not found. Please try a different search.')
+        setLoading(false)
+        return
+      }
+
+      setLocation({
+        lat: parseFloat(data[0].lat),
+        lng: parseFloat(data[0].lon),
+      })
+      setLoading(false)
+    } catch (err) {
+      setError('Error searching for address. Please try again.')
+      setLoading(false)
+    }
+  }
+
+  const handleAddressKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      searchAddress()
+    }
+  }
+
   // Default center (will be replaced when user gets their location)
   const defaultCenter: LocationState = { lat: 40.7128, lng: -74.006 }
   const center = location || defaultCenter
@@ -75,13 +121,34 @@ function App() {
     <div className="app">
       <div className="header">
         <h1>Radius Circle Map Tool</h1>
-        <p>Get your location and draw a radius circle on the map</p>
+        <p>Get your location or search an address to draw a radius circle on the map</p>
       </div>
 
       <div className="controls">
-        <button onClick={getLocation} disabled={loading} className="location-btn">
-          {loading ? 'Getting Location...' : 'Get My Location'}
-        </button>
+        <div className="location-row">
+          <button onClick={getLocation} disabled={loading} className="location-btn">
+            {loading ? 'Getting Location...' : 'Get My Location'}
+          </button>
+
+          <div className="address-search">
+            <input
+              type="text"
+              placeholder="Or enter an address..."
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              onKeyPress={handleAddressKeyPress}
+              disabled={loading}
+              className="address-input"
+            />
+            <button
+              onClick={searchAddress}
+              disabled={loading || !address.trim()}
+              className="search-btn"
+            >
+              Search
+            </button>
+          </div>
+        </div>
 
         <div className="radius-controls">
           <label htmlFor="radius">Radius:</label>
