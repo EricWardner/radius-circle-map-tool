@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { MapContainer, TileLayer, Circle, Marker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
@@ -18,58 +18,75 @@ L.Icon.Default.mergeOptions({
 
 type Unit = 'miles' | 'km'
 
-interface LocationState {
+interface CircleData {
+  id: string
   lat: number
   lng: number
+  radius: number
+  unit: Unit
 }
 
-// Component to auto-fit map bounds to show the entire circle
-function AutoFitBounds({ center, radiusInMeters }: { center: LocationState; radiusInMeters: number }) {
+// Component to auto-fit map bounds to show all circles
+function AutoFitAllBounds({ circles }: { circles: CircleData[] }) {
   const map = useMap()
 
   useEffect(() => {
-    // Small delay to ensure map is ready
+    if (!map || circles.length === 0) return
+
     const timeoutId = setTimeout(() => {
       try {
-        if (!map || !center || radiusInMeters <= 0) return
+        // Create bounds that include all circles
+        const allBounds: L.LatLngBounds[] = []
 
-        // Create bounds manually instead of using a temporary circle
-        // This is more reliable and doesn't create unnecessary objects
-        const latDelta = (radiusInMeters / 111320) // 1 degree latitude ≈ 111,320 meters
-        const lngDelta = radiusInMeters / (111320 * Math.cos(center.lat * Math.PI / 180))
+        circles.forEach((circle) => {
+          const radiusInMeters = circle.unit === 'miles' ? circle.radius * 1609.34 : circle.radius * 1000
+          const latDelta = radiusInMeters / 111320
+          const lngDelta = radiusInMeters / (111320 * Math.cos(circle.lat * Math.PI / 180))
 
-        const bounds = L.latLngBounds(
-          [center.lat - latDelta, center.lng - lngDelta],
-          [center.lat + latDelta, center.lng + lngDelta]
-        )
-
-        // Fit the map to show the entire circle with padding
-        map.fitBounds(bounds, {
-          padding: [50, 50],
-          maxZoom: 18,
-          animate: true
+          const circleBounds = L.latLngBounds(
+            [circle.lat - latDelta, circle.lng - lngDelta],
+            [circle.lat + latDelta, circle.lng + lngDelta]
+          )
+          allBounds.push(circleBounds)
         })
+
+        if (allBounds.length === 1) {
+          map.fitBounds(allBounds[0], { padding: [50, 50], maxZoom: 18, animate: true })
+        } else if (allBounds.length > 1) {
+          // Combine all bounds
+          let combinedBounds = allBounds[0]
+          for (let i = 1; i < allBounds.length; i++) {
+            combinedBounds.extend(allBounds[i])
+          }
+          map.fitBounds(combinedBounds, { padding: [50, 50], maxZoom: 18, animate: true })
+        }
       } catch (error) {
         console.error('Error fitting bounds:', error)
       }
     }, 100)
 
     return () => clearTimeout(timeoutId)
-  }, [center, radiusInMeters, map])
+  }, [circles, map])
 
   return null
 }
 
 function App() {
-  const [location, setLocation] = useState<LocationState | null>(null)
-  const [radius, setRadius] = useState<number>(5)
-  const [unit, setUnit] = useState<Unit>('miles')
+  const [circles, setCircles] = useState<CircleData[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>('')
   const [address, setAddress] = useState<string>('')
 
-  // Convert radius to meters for Leaflet Circle
-  const radiusInMeters = unit === 'miles' ? radius * 1609.34 : radius * 1000
+  const addCircle = (lat: number, lng: number) => {
+    const newCircle: CircleData = {
+      id: Date.now().toString(),
+      lat,
+      lng,
+      radius: 5,
+      unit: 'miles'
+    }
+    setCircles([...circles, newCircle])
+  }
 
   const getLocation = () => {
     setLoading(true)
@@ -83,10 +100,7 @@ function App() {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setLocation({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        })
+        addCircle(position.coords.latitude, position.coords.longitude)
         setLoading(false)
       },
       (err) => {
@@ -106,7 +120,6 @@ function App() {
     setError('')
 
     try {
-      // Use Nominatim (OpenStreetMap's free geocoding service)
       const response = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`,
         {
@@ -124,15 +137,23 @@ function App() {
         return
       }
 
-      setLocation({
-        lat: parseFloat(data[0].lat),
-        lng: parseFloat(data[0].lon),
-      })
+      addCircle(parseFloat(data[0].lat), parseFloat(data[0].lon))
+      setAddress('') // Clear the search input
       setLoading(false)
     } catch (err) {
       setError('Error searching for address. Please try again.')
       setLoading(false)
     }
+  }
+
+  const updateCircle = (id: string, updates: Partial<CircleData>) => {
+    setCircles(circles.map(circle =>
+      circle.id === id ? { ...circle, ...updates } : circle
+    ))
+  }
+
+  const deleteCircle = (id: string) => {
+    setCircles(circles.filter(circle => circle.id !== id))
   }
 
   const handleAddressKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -141,27 +162,29 @@ function App() {
     }
   }
 
-  // Default center (will be replaced when user gets their location)
-  const defaultCenter: LocationState = { lat: 40.7128, lng: -74.006 }
-  const center = location || defaultCenter
+  // Default center (New York City) - used when no circles exist
+  const defaultCenter = { lat: 40.7128, lng: -74.006 }
+  const center = circles.length > 0
+    ? { lat: circles[0].lat, lng: circles[0].lng }
+    : defaultCenter
 
   return (
     <div className="app">
       <div className="header">
         <h1>Radius Circle Map Tool</h1>
-        <p>Get your location or search an address to draw a radius circle on the map</p>
+        <p>Add multiple locations and draw radius circles on the map</p>
       </div>
 
       <div className="controls">
         <div className="location-row">
           <button onClick={getLocation} disabled={loading} className="location-btn">
-            {loading ? 'Getting Location...' : 'Get My Location'}
+            {loading ? 'Getting Location...' : 'Add My Location'}
           </button>
 
           <div className="address-search">
             <input
               type="text"
-              placeholder="Or enter an address..."
+              placeholder="Or enter an address to add..."
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               onKeyPress={handleAddressKeyPress}
@@ -173,37 +196,50 @@ function App() {
               disabled={loading || !address.trim()}
               className="search-btn"
             >
-              Search
+              Add
             </button>
           </div>
         </div>
 
-        <div className="radius-controls">
-          <label htmlFor="radius">Radius:</label>
-          <input
-            id="radius"
-            type="number"
-            min="1"
-            step="1"
-            value={radius}
-            onChange={(e) => setRadius(parseFloat(e.target.value) || 1)}
-            className="radius-input"
-          />
-
-          <select
-            value={unit}
-            onChange={(e) => setUnit(e.target.value as Unit)}
-            className="unit-select"
-          >
-            <option value="miles">Miles</option>
-            <option value="km">Kilometers</option>
-          </select>
-        </div>
-
         {error && <div className="error">{error}</div>}
-        {location && (
-          <div className="location-info">
-            Location: {location.lat.toFixed(6)}, {location.lng.toFixed(6)}
+
+        {circles.length > 0 && (
+          <div className="circles-list">
+            <h3>Circles ({circles.length})</h3>
+            {circles.map((circle) => (
+              <div key={circle.id} className="circle-item">
+                <div className="circle-location">
+                  <span className="circle-coords">
+                    {circle.lat.toFixed(6)}, {circle.lng.toFixed(6)}
+                  </span>
+                </div>
+                <div className="circle-controls">
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={circle.radius}
+                    onChange={(e) => updateCircle(circle.id, { radius: parseFloat(e.target.value) || 1 })}
+                    className="circle-radius-input"
+                  />
+                  <select
+                    value={circle.unit}
+                    onChange={(e) => updateCircle(circle.id, { unit: e.target.value as Unit })}
+                    className="circle-unit-select"
+                  >
+                    <option value="miles">mi</option>
+                    <option value="km">km</option>
+                  </select>
+                  <button
+                    onClick={() => deleteCircle(circle.id)}
+                    className="delete-btn"
+                    title="Delete circle"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -219,21 +255,36 @@ function App() {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
-          {location && (
+          {circles.length > 0 && (
             <>
-              <AutoFitBounds center={location} radiusInMeters={radiusInMeters} />
-              <Marker position={[location.lat, location.lng]}>
-                <Popup>Your Location</Popup>
-              </Marker>
-              <Circle
-                center={[location.lat, location.lng]}
-                radius={radiusInMeters}
-                pathOptions={{
-                  color: 'blue',
-                  fillColor: 'blue',
-                  fillOpacity: 0.2,
-                }}
-              />
+              <AutoFitAllBounds circles={circles} />
+              {circles.map((circle, index) => {
+                const radiusInMeters = circle.unit === 'miles' ? circle.radius * 1609.34 : circle.radius * 1000
+                // Generate different colors for each circle
+                const colors = ['#667eea', '#f093fb', '#4facfe', '#43e97b', '#fa709a', '#fee140']
+                const color = colors[index % colors.length]
+
+                return (
+                  <React.Fragment key={circle.id}>
+                    <Marker position={[circle.lat, circle.lng]}>
+                      <Popup>
+                        {circle.lat.toFixed(6)}, {circle.lng.toFixed(6)}
+                        <br />
+                        Radius: {circle.radius} {circle.unit}
+                      </Popup>
+                    </Marker>
+                    <Circle
+                      center={[circle.lat, circle.lng]}
+                      radius={radiusInMeters}
+                      pathOptions={{
+                        color: color,
+                        fillColor: color,
+                        fillOpacity: 0.2,
+                      }}
+                    />
+                  </React.Fragment>
+                )
+              })}
             </>
           )}
         </MapContainer>

@@ -190,6 +190,103 @@
   width: 100%;
 }
 
+.circles-list {
+  width: 100%;
+  background: white;
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.circles-list h3 {
+  margin: 0 0 1rem 0;
+  color: #333;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.circle-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: #f8f9fa;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  border-left: 4px solid #667eea;
+}
+
+.circle-item:last-child {
+  margin-bottom: 0;
+}
+
+.circle-location {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.circle-coords {
+  font-family: monospace;
+  font-size: 0.9rem;
+  color: #555;
+  font-weight: 500;
+}
+
+.circle-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.circle-radius-input {
+  width: 80px;
+  padding: 0.5rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  transition: border-color 0.2s;
+}
+
+.circle-radius-input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.circle-unit-select {
+  padding: 0.5rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  background: white;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.circle-unit-select:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.delete-btn {
+  background: #ff4444;
+  color: white;
+  border: none;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 1.2rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+  line-height: 1;
+  margin-left: auto;
+}
+
+.delete-btn:hover {
+  background: #cc0000;
+  transform: scale(1.1);
+}
+
 .map-container {
   flex: 1;
   position: relative;
@@ -227,5 +324,21 @@
   .radius-controls {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .circles-list {
+    padding: 0.75rem;
+  }
+
+  .circle-item {
+    padding: 0.5rem;
+  }
+
+  .circle-coords {
+    font-size: 0.8rem;
+  }
+
+  .circle-radius-input {
+    width: 70px;
   }
 }
