@@ -141,6 +141,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>('')
   const [address, setAddress] = useState<string>('')
+  const [darkMode, setDarkMode] = useState(false)
 
   const addCircle = (lat: number, lng: number) => {
     const newCircle: CircleData = {
@@ -234,10 +235,17 @@ function App() {
     : defaultCenter
 
   return (
-    <div className="app">
+    <div className={`app ${darkMode ? 'dark' : ''}`}>
       <div className="header">
         <h1>Radius Circle Map Tool</h1>
         <p>Add multiple locations and draw radius circles on the map</p>
+        <button
+          onClick={() => setDarkMode(!darkMode)}
+          className="theme-toggle"
+          title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {darkMode ? '☀️' : '🌙'}
+        </button>
       </div>
 
       <div className="controls">
@@ -316,8 +324,14 @@ function App() {
           style={{ height: '100%', width: '100%' }}
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution={darkMode
+              ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+              : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }
+            url={darkMode
+              ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+              : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+            }
           />
 
           {circles.length > 0 && (
