@@ -26,7 +26,67 @@ interface CircleData {
   unit: Unit
 }
 
-// Component to auto-fit map bounds to show all circles
+interface IntersectionPoint {
+  lat: number
+  lng: number
+}
+
+// Calculate intersection points between two circles
+function calculateIntersectionPoints(
+  circle1: CircleData,
+  circle2: CircleData
+): IntersectionPoint[] {
+  const r1 = circle1.unit === 'miles' ? circle1.radius * 1609.34 : circle1.radius * 1000
+  const r2 = circle2.unit === 'miles' ? circle2.radius * 1609.34 : circle2.radius * 1000
+
+  // Convert lat/lng to approximate cartesian coordinates (meters)
+  const lat1Rad = circle1.lat * Math.PI / 180
+  const lat2Rad = circle2.lat * Math.PI / 180
+
+  const x1 = circle1.lng * 111320 * Math.cos(lat1Rad)
+  const y1 = circle1.lat * 111320
+  const x2 = circle2.lng * 111320 * Math.cos(lat2Rad)
+  const y2 = circle2.lat * 111320
+
+  // Distance between centers
+  const d = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2))
+
+  // Check if circles intersect
+  if (d > r1 + r2 || d < Math.abs(r1 - r2) || d === 0) {
+    return [] // No intersection or circles are identical
+  }
+
+  // Calculate intersection points
+  const a = (r1 * r1 - r2 * r2 + d * d) / (2 * d)
+  const h = Math.sqrt(r1 * r1 - a * a)
+
+  // Point on line between centers
+  const px = x1 + a * (x2 - x1) / d
+  const py = y1 + a * (y2 - y1) / d
+
+  // Intersection points
+  const ix1 = px + h * (y2 - y1) / d
+  const iy1 = py - h * (x2 - x1) / d
+  const ix2 = px - h * (y2 - y1) / d
+  const iy2 = py + h * (x2 - x1) / d
+
+  // Convert back to lat/lng
+  const avgLat = (circle1.lat + circle2.lat) / 2
+  const cosAvgLat = Math.cos(avgLat * Math.PI / 180)
+
+  return [
+    {
+      lat: iy1 / 111320,
+      lng: ix1 / (111320 * cosAvgLat)
+    },
+    {
+      lat: iy2 / 111320,
+      lng: ix2 / (111320 * cosAvgLat)
+    }
+  ]
+}
+
+// Component to auto-fit map bounds to show all circles and their intersections
 function AutoFitAllBounds({ circles }: { circles: CircleData[] }) {
   const map = useMap()
 
@@ -36,29 +96,34 @@ function AutoFitAllBounds({ circles }: { circles: CircleData[] }) {
     const timeoutId = setTimeout(() => {
       try {
         // Create bounds that include all circles
-        const allBounds: L.LatLngBounds[] = []
+        const allPoints: L.LatLng[] = []
 
+        // Add circle bounds
         circles.forEach((circle) => {
           const radiusInMeters = circle.unit === 'miles' ? circle.radius * 1609.34 : circle.radius * 1000
           const latDelta = radiusInMeters / 111320
           const lngDelta = radiusInMeters / (111320 * Math.cos(circle.lat * Math.PI / 180))
 
-          const circleBounds = L.latLngBounds(
-            [circle.lat - latDelta, circle.lng - lngDelta],
-            [circle.lat + latDelta, circle.lng + lngDelta]
-          )
-          allBounds.push(circleBounds)
+          // Add the four corner points of the circle's bounding box
+          allPoints.push(L.latLng(circle.lat + latDelta, circle.lng + lngDelta))
+          allPoints.push(L.latLng(circle.lat + latDelta, circle.lng - lngDelta))
+          allPoints.push(L.latLng(circle.lat - latDelta, circle.lng + lngDelta))
+          allPoints.push(L.latLng(circle.lat - latDelta, circle.lng - lngDelta))
         })
 
-        if (allBounds.length === 1) {
-          map.fitBounds(allBounds[0], { padding: [50, 50], maxZoom: 18, animate: true })
-        } else if (allBounds.length > 1) {
-          // Combine all bounds
-          let combinedBounds = allBounds[0]
-          for (let i = 1; i < allBounds.length; i++) {
-            combinedBounds.extend(allBounds[i])
+        // Add intersection points
+        for (let i = 0; i < circles.length; i++) {
+          for (let j = i + 1; j < circles.length; j++) {
+            const intersections = calculateIntersectionPoints(circles[i], circles[j])
+            intersections.forEach(point => {
+              allPoints.push(L.latLng(point.lat, point.lng))
+            })
           }
-          map.fitBounds(combinedBounds, { padding: [50, 50], maxZoom: 18, animate: true })
+        }
+
+        if (allPoints.length > 0) {
+          const bounds = L.latLngBounds(allPoints)
+          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 18, animate: true })
         }
       } catch (error) {
         console.error('Error fitting bounds:', error)
@@ -285,6 +350,36 @@ function App() {
                   </React.Fragment>
                 )
               })}
+
+              {/* Show intersection points */}
+              {circles.length > 1 && (() => {
+                const allIntersections: IntersectionPoint[] = []
+                for (let i = 0; i < circles.length; i++) {
+                  for (let j = i + 1; j < circles.length; j++) {
+                    const intersections = calculateIntersectionPoints(circles[i], circles[j])
+                    allIntersections.push(...intersections)
+                  }
+                }
+                return allIntersections.map((point, idx) => (
+                  <Circle
+                    key={`intersection-${idx}`}
+                    center={[point.lat, point.lng]}
+                    radius={50}
+                    pathOptions={{
+                      color: '#ff6b6b',
+                      fillColor: '#ff6b6b',
+                      fillOpacity: 0.8,
+                      weight: 2,
+                    }}
+                  >
+                    <Popup>
+                      Intersection Point
+                      <br />
+                      {point.lat.toFixed(6)}, {point.lng.toFixed(6)}
+                    </Popup>
+                  </Circle>
+                ))
+              })()}
             </>
           )}
         </MapContainer>
