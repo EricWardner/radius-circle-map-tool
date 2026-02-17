@@ -39,17 +39,26 @@ function calculateIntersectionPoints(
   const r1 = circle1.unit === 'miles' ? circle1.radius * 1609.34 : circle1.radius * 1000
   const r2 = circle2.unit === 'miles' ? circle2.radius * 1609.34 : circle2.radius * 1000
 
-  // Convert lat/lng to approximate cartesian coordinates (meters)
-  const lat1Rad = circle1.lat * Math.PI / 180
-  const lat2Rad = circle2.lat * Math.PI / 180
+  // Use average latitude for a consistent equirectangular projection.
+  // Both points must use the same scale factors so the forward and reverse
+  // transformations are inverses of each other.
+  const avgLat = (circle1.lat + circle2.lat) / 2
+  const avgLatRad = avgLat * Math.PI / 180
 
-  const x1 = circle1.lng * 111320 * Math.cos(lat1Rad)
-  const y1 = circle1.lat * 111320
-  const x2 = circle2.lng * 111320 * Math.cos(lat2Rad)
-  const y2 = circle2.lat * 111320
+  // WGS84 ellipsoid meters-per-degree (truncated Fourier series)
+  const metersPerDegreeLat = 111132.92 - 559.82 * Math.cos(2 * avgLatRad) + 1.175 * Math.cos(4 * avgLatRad)
+  const metersPerDegreeLng = 111412.84 * Math.cos(avgLatRad) - 93.5 * Math.cos(3 * avgLatRad)
+
+  // Convert lat/lng to Cartesian coordinates (meters) using consistent projection
+  const x1 = circle1.lng * metersPerDegreeLng
+  const y1 = circle1.lat * metersPerDegreeLat
+  const x2 = circle2.lng * metersPerDegreeLng
+  const y2 = circle2.lat * metersPerDegreeLat
 
   // Distance between centers
-  const d = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2))
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const d = Math.sqrt(dx * dx + dy * dy)
 
   // Check if circles intersect
   if (d > r1 + r2 || d < Math.abs(r1 - r2) || d === 0) {
@@ -61,27 +70,24 @@ function calculateIntersectionPoints(
   const h = Math.sqrt(r1 * r1 - a * a)
 
   // Point on line between centers
-  const px = x1 + a * (x2 - x1) / d
-  const py = y1 + a * (y2 - y1) / d
+  const px = x1 + a * dx / d
+  const py = y1 + a * dy / d
 
   // Intersection points
-  const ix1 = px + h * (y2 - y1) / d
-  const iy1 = py - h * (x2 - x1) / d
-  const ix2 = px - h * (y2 - y1) / d
-  const iy2 = py + h * (x2 - x1) / d
+  const ix1 = px + h * dy / d
+  const iy1 = py - h * dx / d
+  const ix2 = px - h * dy / d
+  const iy2 = py + h * dx / d
 
-  // Convert back to lat/lng
-  const avgLat = (circle1.lat + circle2.lat) / 2
-  const cosAvgLat = Math.cos(avgLat * Math.PI / 180)
-
+  // Convert back to lat/lng using the same projection factors
   return [
     {
-      lat: iy1 / 111320,
-      lng: ix1 / (111320 * cosAvgLat)
+      lat: iy1 / metersPerDegreeLat,
+      lng: ix1 / metersPerDegreeLng
     },
     {
-      lat: iy2 / 111320,
-      lng: ix2 / (111320 * cosAvgLat)
+      lat: iy2 / metersPerDegreeLat,
+      lng: ix2 / metersPerDegreeLng
     }
   ]
 }
