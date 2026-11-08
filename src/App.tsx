@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react'
-import { MapContainer, TileLayer, Circle, Marker, Popup, useMap } from 'react-leaflet'
+import React, { useState, useEffect, useMemo } from 'react'
+import { MapContainer, TileLayer, Circle, Marker, Polygon, Polyline, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
 import L from 'leaflet'
+import { circleIntersections, geodesicCircle, toMeters, wrapLngNear } from './geo'
+import type { LatLng, LatLngTuple, Unit } from './geo'
 
 // Fix for default marker icon in Leaflet with Vite
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
@@ -16,8 +18,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 })
 
-type Unit = 'miles' | 'km'
-
 interface CircleData {
   id: string
   lat: number
@@ -27,117 +27,29 @@ interface CircleData {
 }
 
 interface IntersectionPoint {
-  lat: number
-  lng: number
+  /** Where to draw it, beside its circles (the longitude may run past ±180). */
+  position: LatLngTuple
+  /** Its real coordinates, for display. */
+  actual: LatLng
 }
 
-// Calculate intersection points between two circles
-function calculateIntersectionPoints(
-  circle1: CircleData,
-  circle2: CircleData
-): IntersectionPoint[] {
-  const r1 = circle1.unit === 'miles' ? circle1.radius * 1609.34 : circle1.radius * 1000
-  const r2 = circle2.unit === 'miles' ? circle2.radius * 1609.34 : circle2.radius * 1000
-
-  // Use average latitude for a consistent equirectangular projection.
-  // Both points must use the same scale factors so the forward and reverse
-  // transformations are inverses of each other.
-  const avgLat = (circle1.lat + circle2.lat) / 2
-  const avgLatRad = avgLat * Math.PI / 180
-
-  // WGS84 ellipsoid meters-per-degree (truncated Fourier series)
-  const metersPerDegreeLat = 111132.92 - 559.82 * Math.cos(2 * avgLatRad) + 1.175 * Math.cos(4 * avgLatRad)
-  const metersPerDegreeLng = 111412.84 * Math.cos(avgLatRad) - 93.5 * Math.cos(3 * avgLatRad)
-
-  // Convert lat/lng to Cartesian coordinates (meters) using consistent projection
-  const x1 = circle1.lng * metersPerDegreeLng
-  const y1 = circle1.lat * metersPerDegreeLat
-  const x2 = circle2.lng * metersPerDegreeLng
-  const y2 = circle2.lat * metersPerDegreeLat
-
-  // Distance between centers
-  const dx = x2 - x1
-  const dy = y2 - y1
-  const d = Math.sqrt(dx * dx + dy * dy)
-
-  // Check if circles intersect
-  if (d > r1 + r2 || d < Math.abs(r1 - r2) || d === 0) {
-    return [] // No intersection or circles are identical
-  }
-
-  // Calculate intersection points
-  const a = (r1 * r1 - r2 * r2 + d * d) / (2 * d)
-  const h = Math.sqrt(r1 * r1 - a * a)
-
-  // Point on line between centers
-  const px = x1 + a * dx / d
-  const py = y1 + a * dy / d
-
-  // Intersection points
-  const ix1 = px + h * dy / d
-  const iy1 = py - h * dx / d
-  const ix2 = px - h * dy / d
-  const iy2 = py + h * dx / d
-
-  // Convert back to lat/lng using the same projection factors
-  return [
-    {
-      lat: iy1 / metersPerDegreeLat,
-      lng: ix1 / metersPerDegreeLng
-    },
-    {
-      lat: iy2 / metersPerDegreeLat,
-      lng: ix2 / metersPerDegreeLng
-    }
-  ]
-}
+const CIRCLE_COLORS = ['#667eea', '#f093fb', '#4facfe', '#43e97b', '#fa709a', '#fee140']
 
 // Component to auto-fit map bounds to show all circles and their intersections
-function AutoFitAllBounds({ circles }: { circles: CircleData[] }) {
+function AutoFitAllBounds({ bounds }: { bounds: L.LatLngBounds }) {
   const map = useMap()
 
   useEffect(() => {
-    if (!map || circles.length === 0) return
-
     const timeoutId = setTimeout(() => {
       try {
-        // Create bounds that include all circles
-        const allPoints: L.LatLng[] = []
-
-        // Add circle bounds
-        circles.forEach((circle) => {
-          const radiusInMeters = circle.unit === 'miles' ? circle.radius * 1609.34 : circle.radius * 1000
-          const latDelta = radiusInMeters / 111320
-          const lngDelta = radiusInMeters / (111320 * Math.cos(circle.lat * Math.PI / 180))
-
-          // Add the four corner points of the circle's bounding box
-          allPoints.push(L.latLng(circle.lat + latDelta, circle.lng + lngDelta))
-          allPoints.push(L.latLng(circle.lat + latDelta, circle.lng - lngDelta))
-          allPoints.push(L.latLng(circle.lat - latDelta, circle.lng + lngDelta))
-          allPoints.push(L.latLng(circle.lat - latDelta, circle.lng - lngDelta))
-        })
-
-        // Add intersection points
-        for (let i = 0; i < circles.length; i++) {
-          for (let j = i + 1; j < circles.length; j++) {
-            const intersections = calculateIntersectionPoints(circles[i], circles[j])
-            intersections.forEach(point => {
-              allPoints.push(L.latLng(point.lat, point.lng))
-            })
-          }
-        }
-
-        if (allPoints.length > 0) {
-          const bounds = L.latLngBounds(allPoints)
-          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 18, animate: true })
-        }
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 18, animate: true })
       } catch (error) {
         console.error('Error fitting bounds:', error)
       }
     }, 100)
 
     return () => clearTimeout(timeoutId)
-  }, [circles, map])
+  }, [bounds, map])
 
   return null
 }
@@ -157,7 +69,7 @@ function App() {
       radius: 5,
       unit: 'miles'
     }
-    setCircles([...circles, newCircle])
+    setCircles((prev) => [...prev, newCircle])
   }
 
   const getLocation = () => {
@@ -219,13 +131,13 @@ function App() {
   }
 
   const updateCircle = (id: string, updates: Partial<CircleData>) => {
-    setCircles(circles.map(circle =>
+    setCircles((prev) => prev.map(circle =>
       circle.id === id ? { ...circle, ...updates } : circle
     ))
   }
 
   const deleteCircle = (id: string) => {
-    setCircles(circles.filter(circle => circle.id !== id))
+    setCircles((prev) => prev.filter(circle => circle.id !== id))
   }
 
   const handleAddressKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -239,6 +151,41 @@ function App() {
   const center = circles.length > 0
     ? { lat: circles[0].lat, lng: circles[0].lng }
     : defaultCenter
+
+  // Everything drawn on the map, recomputed only when the circles change.
+  // Longitudes are shifted to sit beside the first circle, so circles on
+  // either side of the ±180° line are drawn together, not at opposite edges.
+  const mapShapes = useMemo(() => {
+    if (circles.length === 0) return null
+
+    const refLng = circles[0].lng
+    const shapes = circles.map((circle) => {
+      const center = { lat: circle.lat, lng: wrapLngNear(circle.lng, refLng) }
+      const meters = toMeters(circle.radius, circle.unit)
+      return { circle, center, meters, ...geodesicCircle(center, meters) }
+    })
+
+    const intersections: IntersectionPoint[] = []
+    for (let i = 0; i < shapes.length; i++) {
+      for (let j = i + 1; j < shapes.length; j++) {
+        const a = shapes[i]
+        const b = shapes[j]
+        for (const point of circleIntersections(a.center, a.meters, b.center, b.meters)) {
+          intersections.push({
+            position: [point.lat, wrapLngNear(point.lng, a.center.lng)],
+            actual: point,
+          })
+        }
+      }
+    }
+
+    const bounds = L.latLngBounds([
+      ...shapes.flatMap((shape) => shape.area.flat()),
+      ...intersections.map((point) => point.position),
+    ])
+
+    return { shapes, intersections, bounds }
+  }, [circles])
 
   return (
     <div className={`app ${darkMode ? 'dark' : ''}`}>
@@ -352,66 +299,52 @@ function App() {
             }
           />
 
-          {circles.length > 0 && (
+          {mapShapes && (
             <>
-              <AutoFitAllBounds circles={circles} />
-              {circles.map((circle, index) => {
-                const radiusInMeters = circle.unit === 'miles' ? circle.radius * 1609.34 : circle.radius * 1000
-                // Generate different colors for each circle
-                const colors = ['#667eea', '#f093fb', '#4facfe', '#43e97b', '#fa709a', '#fee140']
-                const color = colors[index % colors.length]
+              <AutoFitAllBounds bounds={mapShapes.bounds} />
+              {mapShapes.shapes.map(({ circle, center, area, edge }, index) => {
+                const color = CIRCLE_COLORS[index % CIRCLE_COLORS.length]
 
                 return (
                   <React.Fragment key={circle.id}>
-                    <Marker position={[circle.lat, circle.lng]}>
+                    <Marker position={[center.lat, center.lng]}>
                       <Popup>
                         {circle.lat.toFixed(6)}, {circle.lng.toFixed(6)}
                         <br />
                         Radius: {circle.radius} {circle.unit}
                       </Popup>
                     </Marker>
-                    <Circle
-                      center={[circle.lat, circle.lng]}
-                      radius={radiusInMeters}
-                      pathOptions={{
-                        color: color,
-                        fillColor: color,
-                        fillOpacity: 0.2,
-                      }}
+                    {/* Fill and outline are separate so the fill's closing
+                        edges along a pole aren't stroked as if part of the circle */}
+                    <Polygon
+                      positions={area}
+                      pathOptions={{ stroke: false, fillColor: color, fillOpacity: 0.2 }}
                     />
+                    <Polyline positions={edge} pathOptions={{ color }} />
                   </React.Fragment>
                 )
               })}
 
               {/* Show intersection points */}
-              {circles.length > 1 && (() => {
-                const allIntersections: IntersectionPoint[] = []
-                for (let i = 0; i < circles.length; i++) {
-                  for (let j = i + 1; j < circles.length; j++) {
-                    const intersections = calculateIntersectionPoints(circles[i], circles[j])
-                    allIntersections.push(...intersections)
-                  }
-                }
-                return allIntersections.map((point, idx) => (
-                  <Circle
-                    key={`intersection-${idx}`}
-                    center={[point.lat, point.lng]}
-                    radius={50}
-                    pathOptions={{
-                      color: '#ff6b6b',
-                      fillColor: '#ff6b6b',
-                      fillOpacity: 0.8,
-                      weight: 2,
-                    }}
-                  >
-                    <Popup>
-                      Intersection Point
-                      <br />
-                      {point.lat.toFixed(6)}, {point.lng.toFixed(6)}
-                    </Popup>
-                  </Circle>
-                ))
-              })()}
+              {mapShapes.intersections.map(({ position, actual }, idx) => (
+                <Circle
+                  key={`intersection-${idx}`}
+                  center={position}
+                  radius={50}
+                  pathOptions={{
+                    color: '#ff6b6b',
+                    fillColor: '#ff6b6b',
+                    fillOpacity: 0.8,
+                    weight: 2,
+                  }}
+                >
+                  <Popup>
+                    Intersection Point
+                    <br />
+                    {actual.lat.toFixed(6)}, {actual.lng.toFixed(6)}
+                  </Popup>
+                </Circle>
+              ))}
             </>
           )}
         </MapContainer>
