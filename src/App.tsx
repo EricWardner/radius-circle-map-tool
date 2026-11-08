@@ -11,7 +11,7 @@ import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 
-delete (L.Icon.Default.prototype as any)._getIconUrl
+delete (L.Icon.Default.prototype as { _getIconUrl?: unknown })._getIconUrl
 L.Icon.Default.mergeOptions({
   iconUrl: markerIcon,
   iconRetinaUrl: markerIcon2x,
@@ -216,14 +216,21 @@ function App() {
     setError('')
 
     try {
+      // No User-Agent header: browsers don't let pages set it (Chrome drops
+      // it silently). Nominatim identifies us by the Referer the browser sends.
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`,
-        {
-          headers: {
-            'User-Agent': 'RadiusMapTool/1.0'
-          }
-        }
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`
       )
+
+      if (!response.ok) {
+        setError(
+          response.status === 429
+            ? 'Too many address searches. Please wait a moment and try again.'
+            : `Address search failed (HTTP ${response.status}). Please try again.`
+        )
+        setLoading(false)
+        return
+      }
 
       const data = await response.json()
 
@@ -236,7 +243,7 @@ function App() {
       addCircle(parseFloat(data[0].lat), parseFloat(data[0].lon))
       setAddress('') // Clear the search input
       setLoading(false)
-    } catch (err) {
+    } catch {
       setError('Error searching for address. Please try again.')
       setLoading(false)
     }
@@ -252,8 +259,9 @@ function App() {
     setCircles((prev) => prev.filter(circle => circle.id !== id))
   }
 
-  const handleAddressKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+  const handleAddressKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Ignore the Enter that confirms an IME composition (e.g. Japanese input)
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
       searchAddress()
     }
   }
@@ -319,6 +327,7 @@ function App() {
           onClick={() => setDarkMode(!darkMode)}
           className="theme-toggle"
           title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+          aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
         >
           {darkMode ? '☀️' : '🌙'}
         </button>
@@ -334,9 +343,10 @@ function App() {
             <input
               type="text"
               placeholder="Or enter an address to add..."
+              aria-label="Address to add"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              onKeyPress={handleAddressKeyPress}
+              onKeyDown={handleAddressKeyDown}
               disabled={loading}
               className="address-input"
             />
@@ -355,7 +365,7 @@ function App() {
         {circles.length > 0 && (
           <div className="circles-list">
             <h3>Circles ({circles.length})</h3>
-            {circles.map((circle) => (
+            {circles.map((circle, index) => (
               <div key={circle.id} className="circle-item">
                 <div className="circle-location">
                   <span className="circle-coords">
@@ -367,6 +377,7 @@ function App() {
                     type="text"
                     inputMode="numeric"
                     pattern="[0-9]*"
+                    aria-label={`Circle ${index + 1} radius`}
                     value={circle.radius}
                     onChange={(e) => {
                       const val = e.target.value
@@ -386,6 +397,7 @@ function App() {
                   <select
                     value={circle.unit}
                     onChange={(e) => updateCircle(circle.id, { unit: e.target.value as Unit })}
+                    aria-label={`Circle ${index + 1} unit`}
                     className="circle-unit-select"
                   >
                     <option value="miles">mi</option>
@@ -395,6 +407,7 @@ function App() {
                     onClick={() => deleteCircle(circle.id)}
                     className="delete-btn"
                     title="Delete circle"
+                    aria-label={`Delete circle ${index + 1}`}
                   >
                     ✕
                   </button>
@@ -418,7 +431,7 @@ function App() {
             }
             url={darkMode
               ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-              : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+              : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
             }
           />
 
