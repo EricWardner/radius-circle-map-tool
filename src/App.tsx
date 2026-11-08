@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { MapContainer, TileLayer, Circle, Marker, Polygon, Polyline, Popup, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, CircleMarker, Marker, Polygon, Polyline, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
 import L from 'leaflet'
-import { circleIntersections, geodesicCircle, toMeters, wrapLngNear } from './geo'
-import type { LatLng, LatLngTuple, Unit } from './geo'
+import { circleIntersections, geodesicCircle, shiftLng, toMeters, wrapLngNear } from './geo'
+import type { CircleShape, LatLng, LatLngTuple, Unit } from './geo'
 
 // Fix for default marker icon in Leaflet with Vite
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
@@ -33,7 +33,119 @@ interface IntersectionPoint {
   actual: LatLng
 }
 
+interface DrawnCircle extends CircleShape {
+  circle: CircleData
+  /** Centre to draw at (the longitude may run past ±180). */
+  center: LatLng
+  meters: number
+}
+
 const CIRCLE_COLORS = ['#667eea', '#f093fb', '#4facfe', '#43e97b', '#fa709a', '#fee140']
+
+/**
+ * Whole-turn longitude offsets to repeat the drawing at, so every copy of
+ * the world in view shows it. Leaflet repeats the map tiles sideways but
+ * draws each shape only once.
+ */
+function useWorldOffsets([minLng, maxLng]: [number, number]): number[] {
+  const map = useMap()
+  const [range, setRange] = useState<[number, number]>([0, 0])
+
+  useEffect(() => {
+    const update = () => {
+      const view = map.getBounds()
+      const first = Math.ceil((view.getWest() - maxLng) / 360)
+      const last = Math.floor((view.getEast() - minLng) / 360)
+      setRange((prev) => (prev[0] === first && prev[1] === last ? prev : [first, last]))
+    }
+    update()
+    map.on('moveend resize', update)
+    return () => {
+      map.off('moveend resize', update)
+    }
+  }, [map, minLng, maxLng])
+
+  return useMemo(() => {
+    const offsets: number[] = []
+    for (let k = range[0]; k <= range[1]; k++) offsets.push(k * 360)
+    return offsets
+  }, [range])
+}
+
+const CircleLayers = React.memo(function CircleLayers({
+  shapes,
+  intersections,
+  lngRange,
+}: {
+  shapes: DrawnCircle[]
+  intersections: IntersectionPoint[]
+  lngRange: [number, number]
+}) {
+  const offsets = useWorldOffsets(lngRange)
+
+  const repeated = useMemo(
+    () =>
+      shapes.map((shape) => ({
+        ...shape,
+        area: offsets.map((offset) => shape.area.map((ring) => shiftLng(ring, offset))),
+        edge: offsets.flatMap((offset) => shape.edge.map((line) => shiftLng(line, offset))),
+      })),
+    [shapes, offsets],
+  )
+
+  return (
+    <>
+      {repeated.map(({ circle, center, area, edge }, index) => {
+        const color = CIRCLE_COLORS[index % CIRCLE_COLORS.length]
+
+        return (
+          <React.Fragment key={circle.id}>
+            {offsets.map((offset) => (
+              <Marker key={offset} position={[center.lat, center.lng + offset]}>
+                <Popup>
+                  {circle.lat.toFixed(6)}, {circle.lng.toFixed(6)}
+                  <br />
+                  Radius: {circle.radius} {circle.unit}
+                </Popup>
+              </Marker>
+            ))}
+            {/* Fill and outline are separate so the fill's closing
+                edges along a pole aren't stroked as if part of the circle */}
+            <Polygon
+              positions={area}
+              pathOptions={{ stroke: false, fillColor: color, fillOpacity: 0.2 }}
+            />
+            {/* Less simplification than Leaflet's default so the edge looks round, not faceted */}
+            <Polyline positions={edge} pathOptions={{ color }} smoothFactor={0.25} />
+          </React.Fragment>
+        )
+      })}
+
+      {/* Intersection points, a fixed size on screen so they stay visible at any zoom */}
+      {intersections.map(({ position, actual }, idx) =>
+        offsets.map((offset) => (
+          <CircleMarker
+            key={`intersection-${idx}:${offset}`}
+            center={[position[0], position[1] + offset]}
+            radius={6}
+            pathOptions={{
+              color: '#ff6b6b',
+              fillColor: '#ff6b6b',
+              fillOpacity: 0.8,
+              weight: 2,
+            }}
+          >
+            <Popup>
+              Intersection Point
+              <br />
+              {actual.lat.toFixed(6)}, {actual.lng.toFixed(6)}
+            </Popup>
+          </CircleMarker>
+        )),
+      )}
+    </>
+  )
+})
 
 // Component to auto-fit map bounds to show all circles and their intersections
 function AutoFitAllBounds({ bounds }: { bounds: L.LatLngBounds }) {
@@ -159,7 +271,7 @@ function App() {
     if (circles.length === 0) return null
 
     const refLng = circles[0].lng
-    const shapes = circles.map((circle) => {
+    const shapes = circles.map((circle): DrawnCircle => {
       const center = { lat: circle.lat, lng: wrapLngNear(circle.lng, refLng) }
       const meters = toMeters(circle.radius, circle.unit)
       return { circle, center, meters, ...geodesicCircle(center, meters) }
@@ -180,11 +292,22 @@ function App() {
     }
 
     const bounds = L.latLngBounds([
-      ...shapes.flatMap((shape) => shape.area.flat()),
+      ...shapes.flatMap((shape) => shape.fit),
       ...intersections.map((point) => point.position),
     ])
 
-    return { shapes, intersections, bounds }
+    // Longitudes covered by everything drawn, for repeating it across world copies.
+    let minLng = Infinity
+    let maxLng = -Infinity
+    for (const shape of shapes) {
+      for (const [, lng] of shape.area.flat()) {
+        minLng = Math.min(minLng, lng)
+        maxLng = Math.max(maxLng, lng)
+      }
+    }
+    const lngRange: [number, number] = [minLng, maxLng]
+
+    return { shapes, intersections, bounds, lngRange }
   }, [circles])
 
   return (
@@ -302,49 +425,11 @@ function App() {
           {mapShapes && (
             <>
               <AutoFitAllBounds bounds={mapShapes.bounds} />
-              {mapShapes.shapes.map(({ circle, center, area, edge }, index) => {
-                const color = CIRCLE_COLORS[index % CIRCLE_COLORS.length]
-
-                return (
-                  <React.Fragment key={circle.id}>
-                    <Marker position={[center.lat, center.lng]}>
-                      <Popup>
-                        {circle.lat.toFixed(6)}, {circle.lng.toFixed(6)}
-                        <br />
-                        Radius: {circle.radius} {circle.unit}
-                      </Popup>
-                    </Marker>
-                    {/* Fill and outline are separate so the fill's closing
-                        edges along a pole aren't stroked as if part of the circle */}
-                    <Polygon
-                      positions={area}
-                      pathOptions={{ stroke: false, fillColor: color, fillOpacity: 0.2 }}
-                    />
-                    <Polyline positions={edge} pathOptions={{ color }} />
-                  </React.Fragment>
-                )
-              })}
-
-              {/* Show intersection points */}
-              {mapShapes.intersections.map(({ position, actual }, idx) => (
-                <Circle
-                  key={`intersection-${idx}`}
-                  center={position}
-                  radius={50}
-                  pathOptions={{
-                    color: '#ff6b6b',
-                    fillColor: '#ff6b6b',
-                    fillOpacity: 0.8,
-                    weight: 2,
-                  }}
-                >
-                  <Popup>
-                    Intersection Point
-                    <br />
-                    {actual.lat.toFixed(6)}, {actual.lng.toFixed(6)}
-                  </Popup>
-                </Circle>
-              ))}
+              <CircleLayers
+                shapes={mapShapes.shapes}
+                intersections={mapShapes.intersections}
+                lngRange={mapShapes.lngRange}
+              />
             </>
           )}
         </MapContainer>
